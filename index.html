@@ -1,0 +1,154 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-title" content="存位置">
+<title>存位置</title>
+<style>
+  :root{
+    --bg:#0f1115; --card:#181b22; --line:#2a2f3a; --fg:#e8ecf3; --dim:#98a2b3;
+    --accent:#3b82f6; --ok:#22c55e; --warn:#f59e0b; --bad:#ef4444;
+  }
+  @media (prefers-color-scheme: light){
+    :root{--bg:#f5f7fa; --card:#ffffff; --line:#e3e8ef; --fg:#111827; --dim:#6b7280;}
+  }
+  *{box-sizing:border-box;-webkit-tap-highlight-color:transparent}
+  body{margin:0;padding:18px 16px 40px;background:var(--bg);color:var(--fg);
+       font:16px/1.55 -apple-system,"PingFang SC",Helvetica,Arial,sans-serif}
+  h1{font-size:20px;margin:0 0 4px}
+  p.sub{color:var(--dim);font-size:13px;margin:0 0 18px}
+  .card{background:var(--card);border:1px solid var(--line);border-radius:14px;padding:14px;margin-bottom:14px}
+  label{display:block;font-size:13px;color:var(--dim);margin-bottom:6px}
+  textarea,input{width:100%;font-size:17px;padding:12px;border-radius:10px;border:1px solid var(--line);
+      background:var(--bg);color:var(--fg);font-family:inherit}
+  textarea{min-height:74px;resize:vertical}
+  .row{display:flex;gap:10px;margin-top:10px}
+  button{flex:1;font-size:17px;font-weight:600;padding:14px 10px;border-radius:12px;border:0;
+      background:var(--accent);color:#fff;font-family:inherit}
+  button.ghost{background:transparent;border:1px solid var(--line);color:var(--fg);font-weight:500}
+  button.warn{background:var(--warn)}
+  a.jump{display:block;text-align:center;margin-top:10px;font-size:14px;color:var(--accent);text-decoration:none}
+  .status{margin-top:12px;font-size:14px;min-height:20px}
+  .ok{color:var(--ok)} .bad{color:var(--bad)} .dim{color:var(--dim)}
+  .kv{display:grid;grid-template-columns:auto 1fr;gap:4px 12px;font-size:15px;margin-top:10px}
+  .kv b{color:var(--dim);font-weight:500;font-size:14px}
+  ol{margin:8px 0 0;padding-left:22px;font-size:14px;color:var(--dim)}
+  ol li{margin:4px 0}
+  .tag{display:inline-block;font-size:12px;padding:2px 8px;border-radius:999px;border:1px solid var(--line);color:var(--dim);margin-left:6px}
+</style>
+</head>
+<body>
+
+<h1>存位置</h1>
+<p class="sub">把选好的坐标存进 iPhone（走小火箭的 WLOC 模块）</p>
+
+<div class="card">
+  <label>① 粘贴或输入坐标（顺序随便，会自动认）</label>
+  <textarea id="in" placeholder="例如：39.960035, 140.014114" autocomplete="off" autocorrect="off" spellcheck="false"></textarea>
+  <div class="row">
+    <button class="ghost" id="parse">认一下</button>
+  </div>
+  <div class="kv" id="preview" style="display:none">
+    <b>经度</b><span id="plon">—</span>
+    <b>纬度</b><span id="plat">—</span>
+  </div>
+  <div class="status" id="pst"></div>
+</div>
+
+<div class="card">
+  <label>② 存进手机</label>
+  <div class="row">
+    <button id="save">保存这个位置</button>
+  </div>
+  <div class="status" id="sst"></div>
+  <a class="jump" id="fallback" href="#" style="display:none">保存没反应？点这里用直达方式存一次</a>
+</div>
+
+<div class="card">
+  <label>③ 核对 / 管理</label>
+  <div class="row">
+    <button class="ghost" id="check">看手机里存的是哪个点</button>
+  </div>
+  <a class="jump" id="clear" href="#">清除坐标（恢复真实定位）</a>
+</div>
+
+<div class="card">
+  <label>选中位置用地图</label>
+  <a class="jump" href="https://wloc-spoofer.wloc.workers.dev" style="margin-top:0">打开地图选点页 →</a>
+  <ol>
+    <li>地图选好点后，记下页面上那串数字（形如 39.96, 140.01）</li>
+    <li>回到这里粘进 ①，点「保存这个位置」</li>
+    <li>飞行模式 → 关「定位服务」→ 重启 → 关飞行模式、关 Wi-Fi → 连小火箭 → 开定位服务 → 室内开地图看</li>
+  </ol>
+</div>
+
+<script>
+const BASE = 'https://gs-loc.apple.com/wloc-settings/save';
+const $ = id => document.getElementById(id);
+let coords = null;
+
+function setStatus(el, text, cls){ el.className = 'status ' + (cls||''); el.textContent = text; }
+
+function parseCoords(raw){
+  const s = String(raw).replace(/[，、；]/g, ',').trim();
+  if(!s) return null;
+  // 带方位后缀的形式，如 39.96N, 140.01E
+  const tagged = [...s.matchAll(/([-\d.]+)\s*°?\s*([NSEWnsew])/g)];
+  let lat = null, lon = null;
+  if(tagged.length === 2){
+    for(const m of tagged){
+      const v = parseFloat(m[1]); const d = m[2].toUpperCase();
+      if(d === 'N' || d === 'S') lat = d === 'S' ? -v : v;
+      else lon = d === 'E' ? v : -v;
+    }
+    if(lat !== null && lon !== null) return {lat, lon};
+  }
+  const nums = (s.match(/-?\d+(?:\.\d+)?/g) || []).map(Number).filter(n => Math.abs(n) <= 180);
+  if(nums.length < 2) return null;
+  let a = nums[0], b = nums[1];
+  if(Math.abs(a) > 90 && Math.abs(b) <= 90) return {lon:a, lat:b};   // 第一个是经度
+  if(Math.abs(b) > 90 && Math.abs(a) <= 90) return {lon:b, lat:a};   // 第二个是经度
+  return {lat:a, lon:b};                                             // 都 ≤90：按「纬度, 经度」
+}
+
+function show(c){
+  coords = c;
+  $('preview').style.display = 'grid';
+  $('plon').textContent = c.lon.toFixed(6);
+  $('plat').textContent = c.lat.toFixed(6);
+  $('fallback').href = `${BASE}?lon=${c.lon}&lat=${c.lat}&acc=25`;
+  setStatus($('pst'), '认出来了，去点「保存这个位置」。', 'ok');
+}
+
+$('parse').onclick = () => {
+  const c = parseCoords($('in').value);
+  if(!c){ $('preview').style.display='none'; coords=null; setStatus($('pst'), '没认出两个数字，请贴成「39.960035, 140.014114」这种。', 'bad'); return; }
+  show(c);
+};
+
+$('in').addEventListener('input', () => {
+  const c = parseCoords($('in').value);
+  if(c) show(c); else { coords = null; $('preview').style.display='none'; setStatus($('pst'), '', ''); }
+});
+
+$('save').onclick = async () => {
+  if(!coords){ setStatus($('sst'), '先在 ① 里贴坐标。', 'bad'); return; }
+  const url = `${BASE}?lon=${coords.lon}&lat=${coords.lat}&acc=25`;
+  setStatus($('sst'), '正在发……', 'dim');
+  try{
+    await fetch(url, {mode:'no-cors', cache:'no-store'});
+    setStatus($('sst'), '已发出去。接着点 ③ 的「看手机里存的是哪个点」核对一眼。', 'ok');
+  }catch(e){
+    setStatus($('sst'), '发送失败：' + e.message + '（先检查小火箭是不是连着、模块和 HTTPS 解密是不是开着）', 'bad');
+    $('fallback').style.display = 'block';
+  }
+  $('fallback').style.display = 'block';
+};
+
+$('check').onclick = () => { location.href = BASE + '?action=query'; };
+$('clear').href = BASE + '?action=clear';
+</script>
+</body>
+</html>
