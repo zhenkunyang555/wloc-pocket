@@ -48,6 +48,7 @@
   <label>① 粘贴或输入坐标（顺序随便，会自动认）</label>
   <textarea id="in" placeholder="例如：39.960035, 140.014114" autocomplete="off" autocorrect="off" spellcheck="false"></textarea>
   <div class="row">
+    <button class="ghost" id="paste">粘贴</button>
     <button class="ghost" id="parse">认一下</button>
   </div>
   <div class="kv" id="preview" style="display:none">
@@ -122,6 +123,16 @@ function show(c){
   setStatus($('pst'), '认出来了，去点「保存这个位置」。', 'ok');
 }
 
+$('paste').onclick = async () => {
+  try{
+    const t = await navigator.clipboard.readText();
+    if(t){ $('in').value = t.trim(); $('in').dispatchEvent(new Event('input')); }
+    else setStatus($('pst'), '剪贴板是空的：先去选点页长按复制那串数字。', 'bad');
+  }catch(e){
+    setStatus($('pst'), '系统没给读剪贴板权限：手动长按输入框粘贴一次就行。', 'bad');
+  }
+};
+
 $('parse').onclick = () => {
   const c = parseCoords($('in').value);
   if(!c){ $('preview').style.display='none'; coords=null; setStatus($('pst'), '没认出两个数字，请贴成「39.960035, 140.014114」这种。', 'bad'); return; }
@@ -148,6 +159,13 @@ $('save').onclick = async () => {
 };
 
 $('check').onclick = () => { location.href = BASE + '?action=query'; };
+
+// 支持带参数打开：?lat=39.9&lon=140.0 或 ?c=39.9,140.0
+(function(){
+  const q = new URLSearchParams(location.search);
+  const raw = q.get('c') || (q.get('lat') && q.get('lon') ? `${q.get('lat')},${q.get('lon')}` : '');
+  if(raw){ $('in').value = raw; const c = parseCoords(raw); if(c) show(c); }
+})();
 $('clear').href = BASE + '?action=clear';
 </script>
 </body>
